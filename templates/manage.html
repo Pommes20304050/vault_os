@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VAULT-OS :: PERSONNEL MANAGEMENT</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:      #39ff14;
+      --green-dim:  #1a8a07;
+      --green-dark: #0d4403;
+      --yellow:     #ffcc00;
+      --red:        #ff3300;
+      --bg:         #020c02;
+      --card-bg:    #050f05;
+      --border:     #1c4a0e;
+    }
+
+    html, body {
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--green);
+      font-family: 'Share Tech Mono', 'Courier New', monospace;
+      font-size: 14px;
+    }
+
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 4px);
+      pointer-events: none; z-index: 9999;
+    }
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.65) 100%);
+      pointer-events: none; z-index: 9998;
+    }
+
+    header {
+      border-bottom: 2px solid var(--green-dim);
+      padding: 16px 24px 12px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .vault-logo { font-size: 20px; letter-spacing: 5px; text-shadow: 0 0 10px var(--green); }
+    .vault-logo span { color: var(--green-dim); font-size: 12px; display: block; letter-spacing: 3px; margin-top: 2px; }
+
+    nav { padding: 0 24px; border-bottom: 1px solid var(--border); }
+    nav a {
+      display: inline-block; padding: 8px 16px;
+      color: var(--green-dim); text-decoration: none;
+      letter-spacing: 2px; font-size: 12px;
+      border-right: 1px solid var(--border);
+      transition: color 0.2s, background 0.2s;
+    }
+    nav a:hover, nav a.active { color: var(--green); background: var(--green-dark); }
+
+    main { padding: 20px 24px; display: grid; gap: 20px; }
+
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      padding: 16px;
+      position: relative;
+    }
+    .card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--green-dim), transparent);
+    }
+    .card-title {
+      font-size: 10px; letter-spacing: 4px; color: var(--green-dim);
+      text-transform: uppercase; margin-bottom: 14px;
+      border-bottom: 1px solid var(--border); padding-bottom: 6px;
+    }
+
+    /* ── Form ─────────────────────────────────────────────────────────── */
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 11px; letter-spacing: 2px; color: var(--green-dim); margin-bottom: 4px; }
+    .field input[type="text"] {
+      width: 100%; background: #020802; color: var(--green);
+      border: 1px solid var(--border); padding: 8px 10px;
+      font-family: inherit; font-size: 13px; letter-spacing: 1px;
+      outline: none;
+    }
+    .field input[type="text"]:focus { border-color: var(--green); box-shadow: 0 0 6px var(--green-dark); }
+
+    .btn {
+      display: inline-block; padding: 8px 18px;
+      background: var(--green-dark); color: var(--green);
+      border: 1px solid var(--green-dim); cursor: pointer;
+      font-family: inherit; font-size: 12px; letter-spacing: 2px;
+      text-transform: uppercase; text-decoration: none;
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    .btn:hover { background: #154a08; box-shadow: 0 0 8px var(--green-dark); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-red  { background: #1a0400; border-color: var(--red);    color: var(--red); }
+    .btn-red:hover  { background: #330800; }
+    .btn-yellow { background: #1a1200; border-color: var(--yellow); color: var(--yellow); }
+    .btn-yellow:hover { background: #2a1e00; }
+
+    /* ── Camera feed ──────────────────────────────────────────────────── */
+    #camera-wrap {
+      position: relative; background: #000;
+      border: 1px solid var(--border);
+      margin-bottom: 12px; overflow: hidden;
+      text-align: center; min-height: 200px;
+    }
+    #camera-feed { width: 100%; max-width: 480px; display: block; margin: 0 auto; }
+    #camera-placeholder {
+      padding: 60px 20px; color: var(--green-dim);
+      font-size: 12px; letter-spacing: 2px;
+    }
+    #capture-flash {
+      position: absolute; inset: 0;
+      background: rgba(57, 255, 20, 0.25);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.05s;
+    }
+
+    /* ── Progress bar ─────────────────────────────────────────────────── */
+    .prog-wrap { margin: 10px 0; }
+    .prog-label { font-size: 11px; letter-spacing: 2px; color: var(--green-dim); margin-bottom: 4px; display: flex; justify-content: space-between; }
+    .prog-track { height: 16px; background: #0a1a0a; border: 1px solid var(--border); overflow: hidden; }
+    .prog-fill {
+      height: 100%; background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      transition: width 0.4s ease;
+      width: 0%;
+    }
+    .prog-fill::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: repeating-linear-gradient(90deg, transparent, transparent 4px, rgba(0,0,0,0.2) 4px, rgba(0,0,0,0.2) 8px);
+    }
+    .prog-wrap { position: relative; }
+
+    /* ── Person list ──────────────────────────────────────────────────── */
+    .person-list { list-style: none; }
+    .person-list li {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 6px; border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .person-list li:last-child { border-bottom: none; }
+    .person-name { letter-spacing: 1px; }
+    .person-count { color: var(--green-dim); font-size: 11px; }
+
+    /* ── Toast ────────────────────────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 20px; right: 20px;
+      background: var(--card-bg); border: 1px solid var(--green-dim);
+      color: var(--green); padding: 10px 18px;
+      font-size: 12px; letter-spacing: 2px;
+      opacity: 0; transition: opacity 0.3s;
+      z-index: 9000;
+    }
+    #toast.show { opacity: 1; }
+    #toast.error { border-color: var(--red); color: var(--red); }
+
+    /* ── Space hint ───────────────────────────────────────────────────── */
+    .hint {
+      font-size: 11px; color: var(--green-dim); letter-spacing: 2px;
+      text-align: center; margin-top: 6px;
+    }
+
+    @media (max-width: 800px) { .row-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="vault-logo">
+    ◈ VAULT-TEC INDUSTRIES
+    <span>PERSONNEL MANAGEMENT :: {{ vault_name.upper() }}</span>
+  </div>
+</header>
+
+<nav>
+  <a href="/">◆ DASHBOARD</a>
+  <a href="/manage" class="active">◆ PERSONNEL</a>
+</nav>
+
+<main>
+  <div class="row-2">
+    <!-- ── Enrollment panel ─────────────────────────────────────────── -->
+    <div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-title">◈ ENROLL NEW CITIZEN</div>
+
+        <div class="field">
+          <label>CITIZEN NAME</label>
+          <input type="text" id="person-name" placeholder="ENTER DESIGNATION..." autocomplete="off">
+        </div>
+
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+          <button class="btn" onclick="startCamera()">▸ ACTIVATE CAMERA</button>
+          <button class="btn" id="btn-add-person" onclick="addPerson()">+ REGISTER</button>
+        </div>
+
+        <!-- Camera feed -->
+        <div id="camera-wrap">
+          <div id="camera-placeholder">◈ CAMERA FEED INACTIVE<br><br>PRESS "ACTIVATE CAMERA" TO BEGIN</div>
+          <img id="camera-feed" src="" alt="Camera" style="display:none;">
+          <div id="capture-flash"></div>
+        </div>
+
+        <div class="hint">PRESS <strong style="color:var(--green)">[SPACE]</strong> TO CAPTURE PHOTO WHEN FACE IS DETECTED</div>
+
+        <!-- Progress bar (photos taken) -->
+        <div class="prog-wrap" style="margin-top:12px;">
+          <div class="prog-label">
+            <span>PHOTOS CAPTURED</span>
+            <span id="photo-count">0 / 20</span>
+          </div>
+          <div class="prog-track" style="position:relative;">
+            <div class="prog-fill" id="photo-bar"></div>
+          </div>
+        </div>
+
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <button class="btn btn-yellow" id="btn-train" onclick="trainModel()">⚡ TRAIN MODEL</button>
+          <span id="train-status" style="font-size:11px;color:var(--green-dim);align-self:center;letter-spacing:1px;"></span>
+        </div>
+
+        <!-- Training progress -->
+        <div class="prog-wrap" id="train-prog-wrap" style="margin-top:10px;display:none;">
+          <div class="prog-label">
+            <span>TRAINING PROGRESS</span>
+            <span id="train-pct">0%</span>
+          </div>
+          <div class="prog-track" style="position:relative;">
+            <div class="prog-fill" id="train-bar" style="background:var(--yellow);box-shadow:0 0 6px var(--yellow);"></div>
+          </div>
+          <div style="font-size:11px;color:var(--green-dim);margin-top:4px;letter-spacing:1px;" id="train-msg"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Registered persons ───────────────────────────────────────── -->
+    <div class="card">
+      <div class="card-title">◈ REGISTERED CITIZENS <span style="float:right;" id="person-total-count">{{ persons|length }} REGISTERED</span></div>
+
+      {% if persons %}
+      <ul class="person-list" id="person-list">
+        {% for p in persons %}
+        <li id="prow-{{ p }}">
+          <div>
+            <div class="person-name">▸ {{ p.upper() }}</div>
+            <div class="person-count">{{ counts[p] }} SAMPLE IMAGES</div>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="btn" onclick="selectPerson('{{ p }}')" style="padding:4px 10px;font-size:11px;">SELECT</button>
+            <button class="btn btn-red" onclick="deletePerson('{{ p }}')" style="padding:4px 10px;font-size:11px;">✖ DELETE</button>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div style="color:var(--green-dim);font-size:12px;letter-spacing:2px;padding:20px 0;text-align:center;" id="no-persons">
+        NO CITIZENS REGISTERED<br>ENROLL FIRST CITIZEN TO BEGIN
+      </div>
+      <ul class="person-list" id="person-list" style="display:none;"></ul>
+      {% endif %}
+    </div>
+  </div>
+</main>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+  let cameraActive   = false;
+  let currentPerson  = null;
+  let photoCount     = 0;
+  const TARGET_PHOTOS = 20;
+
+  const socket = io();
+
+  // ── Training status updates via Socket.IO ──────────────────────────────────
+  socket.on('training_status', function(data) {
+    const wrap  = document.getElementById('train-prog-wrap');
+    const bar   = document.getElementById('train-bar');
+    const pct   = document.getElementById('train-pct');
+    const msg   = document.getElementById('train-msg');
+    const btnTr = document.getElementById('btn-train');
+    const status= document.getElementById('train-status');
+
+    wrap.style.display = 'block';
+    bar.style.width    = data.progress + '%';
+    pct.textContent    = data.progress + '%';
+    msg.textContent    = data.message;
+    status.textContent = data.message;
+
+    if (!data.active) {
+      btnTr.disabled = false;
+      if (data.progress === 100) {
+        wrap.style.display = 'none';
+        toast('MODEL TRAINING COMPLETE', false);
+      }
+    } else {
+      btnTr.disabled = true;
+    }
+  });
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
+  function toast(msg, isError = false) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className   = isError ? 'show error' : 'show';
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.className = '', 3000);
+  }
+
+  // ── Camera ─────────────────────────────────────────────────────────────────
+  function startCamera() {
+    const feed = document.getElementById('camera-feed');
+    const placeholder = document.getElementById('camera-placeholder');
+    feed.src = '/video_feed';
+    feed.style.display = 'block';
+    placeholder.style.display = 'none';
+    cameraActive = true;
+    toast('CAMERA ACTIVATED');
+  }
+
+  // ── Space to capture ───────────────────────────────────────────────────────
+  document.addEventListener('keydown', function(e) {
+    if (e.code === 'Space' && cameraActive) {
+      e.preventDefault();
+      capturePhoto();
+    }
+  });
+
+  function flashEffect() {
+    const fl = document.getElementById('capture-flash');
+    fl.style.opacity = '1';
+    setTimeout(() => fl.style.opacity = '0', 150);
+  }
+
+  async function capturePhoto() {
+    const name = currentPerson || document.getElementById('person-name').value.trim();
+    if (!name) { toast('ENTER CITIZEN NAME FIRST', true); return; }
+
+    try {
+      const resp = await fetch('/api/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        toast(data.error || 'CAPTURE FAILED', true);
+        return;
+      }
+
+      flashEffect();
+      photoCount = data.count;
+      updatePhotoBar(photoCount);
+      toast(`PHOTO CAPTURED (${photoCount}/${TARGET_PHOTOS})`);
+    } catch (err) {
+      toast('NETWORK ERROR', true);
+    }
+  }
+
+  function updatePhotoBar(count) {
+    const bar = document.getElementById('photo-bar');
+    const lbl = document.getElementById('photo-count');
+    const pct = Math.min((count / TARGET_PHOTOS) * 100, 100);
+    bar.style.width  = pct + '%';
+    lbl.textContent  = count + ' / ' + TARGET_PHOTOS;
+  }
+
+  // ── Add person ─────────────────────────────────────────────────────────────
+  async function addPerson() {
+    const name = document.getElementById('person-name').value.trim();
+    if (!name) { toast('ENTER CITIZEN NAME', true); return; }
+
+    try {
+      const resp = await fetch('/api/persons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const data = await resp.json();
+      if (!resp.ok) { toast(data.error || 'ERROR', true); return; }
+
+      currentPerson = name;
+      photoCount = 0;
+      updatePhotoBar(0);
+      addPersonToList(name, 0);
+      toast(`CITIZEN REGISTERED: ${name.toUpperCase()}`);
+    } catch (err) {
+      toast('NETWORK ERROR', true);
+    }
+  }
+
+  function addPersonToList(name, count) {
+    const list     = document.getElementById('person-list');
+    const noMsg    = document.getElementById('no-persons');
+    const totalLbl = document.getElementById('person-total-count');
+
+    if (noMsg) noMsg.style.display = 'none';
+    list.style.display = 'block';
+
+    // Update if exists
+    const existing = document.getElementById('prow-' + name);
+    if (existing) {
+      existing.querySelector('.person-count').textContent = count + ' SAMPLE IMAGES';
+      return;
+    }
+
+    const li = document.createElement('li');
+    li.id = 'prow-' + name;
+    li.innerHTML = `
+      <div>
+        <div class="person-name">▸ ${name.toUpperCase()}</div>
+        <div class="person-count">${count} SAMPLE IMAGES</div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn" onclick="selectPerson('${name}')" style="padding:4px 10px;font-size:11px;">SELECT</button>
+        <button class="btn btn-red" onclick="deletePerson('${name}')" style="padding:4px 10px;font-size:11px;">✖ DELETE</button>
+      </div>`;
+    list.appendChild(li);
+
+    const n = list.children.length;
+    totalLbl.textContent = n + ' REGISTERED';
+  }
+
+  function selectPerson(name) {
+    currentPerson = name;
+    document.getElementById('person-name').value = name;
+    photoCount = 0;
+    updatePhotoBar(0);
+    toast(`SELECTED: ${name.toUpperCase()}`);
+  }
+
+  // ── Delete person ──────────────────────────────────────────────────────────
+  async function deletePerson(name) {
+    if (!confirm(`DELETE CITIZEN "${name.toUpperCase()}" AND ALL THEIR DATA?`)) return;
+
+    try {
+      const resp = await fetch('/api/persons/' + encodeURIComponent(name), { method: 'DELETE' });
+      const data = await resp.json();
+      if (!resp.ok) { toast(data.error || 'ERROR', true); return; }
+
+      const row = document.getElementById('prow-' + name);
+      if (row) row.remove();
+      const list     = document.getElementById('person-list');
+      const totalLbl = document.getElementById('person-total-count');
+      totalLbl.textContent = list.children.length + ' REGISTERED';
+      toast(`CITIZEN DELETED: ${name.toUpperCase()}`);
+    } catch (err) {
+      toast('NETWORK ERROR', true);
+    }
+  }
+
+  // ── Train model ────────────────────────────────────────────────────────────
+  async function trainModel() {
+    try {
+      const resp = await fetch('/api/train', { method: 'POST' });
+      const data = await resp.json();
+      if (!resp.ok) { toast(data.error || 'TRAINING ERROR', true); return; }
+      toast('TRAINING INITIATED...');
+      document.getElementById('btn-train').disabled = true;
+      document.getElementById('train-prog-wrap').style.display = 'block';
+    } catch (err) {
+      toast('NETWORK ERROR', true);
+    }
+  }
+
+  // ── Poll training status on load ───────────────────────────────────────────
+  fetch('/api/training_status').then(r => r.json()).then(data => {
+    if (data.active) {
+      socket.emit('get_training_status');
+      document.getElementById('btn-train').disabled = true;
+      document.getElementById('train-prog-wrap').style.display = 'block';
+      document.getElementById('train-msg').textContent = data.message;
+    }
+  }).catch(() => {});
+</script>
+</body>
+</html>

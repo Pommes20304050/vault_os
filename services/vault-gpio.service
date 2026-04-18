@@ -1,0 +1,19 @@
+[Unit]
+Description=Vault-OS GPIO Controller (LEDs + LCD1602)
+After=network.target vault-app.service
+Wants=vault-app.service
+
+[Service]
+User=admin
+Group=gpio
+Type=simple
+WorkingDirectory=/home/pi/vault_os
+ExecStart=/home/pi/vault_os/venv/bin/python3 /home/pi/vault_os/gpio_controller.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

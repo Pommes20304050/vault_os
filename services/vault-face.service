@@ -1,0 +1,17 @@
+[Unit]
+Description=Vault-OS Face Recognition Worker
+After=network.target mosquitto.service vault-app.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/vault_os
+ExecStart=/home/pi/vault_os/venv/bin/python3 /home/pi/vault_os/face_worker.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VAULT-OS :: {{ vault_name.upper() }}</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --g:     #39ff14;
+      --gdim:  #1a8a07;
+      --gdark: #0a2e04;
+      --y:     #ffcc00;
+      --r:     #ff3300;
+      --bg:    #010801;
+      --cbg:   #020c02;
+      --bdr:   #163a0a;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--g);
+      font-family: 'Share Tech Mono', monospace; font-size: 13px; overflow-x: hidden; }
+
+    /* ── Matrix canvas ── */
+    #mx { position: fixed; inset: 0; opacity: .04; pointer-events: none; z-index: 0; }
+
+    /* ── CRT ── */
+    #crt {
+      position: fixed; inset: 0; pointer-events: none; z-index: 9990;
+      background:
+        repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.13) 2px, rgba(0,0,0,.13) 4px),
+        radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,.88) 100%);
+    }
+    #flick {
+      position: fixed; left: 0; width: 100%; height: 3px;
+      background: rgba(57,255,20,.06); pointer-events: none; z-index: 9991;
+      animation: flick 9s linear infinite;
+    }
+    @keyframes flick { from { top: -3px; } to { top: 100%; } }
+
+    /* ── Boot ── */
+    #boot {
+      position: fixed; inset: 0; background: #000; z-index: 99999;
+      padding: 10vh 10vw; font-family: 'VT323', monospace; font-size: 17px;
+      color: var(--g); transition: opacity .7s;
+    }
+    #boot.out { opacity: 0; pointer-events: none; }
+    #boot.gone { display: none; }
+    .bl { display: block; line-height: 1.65; }
+    .bl.dim { color: var(--gdim); }
+    .bl.w   { color: var(--y); }
+    .bl.br  { color: #eee; text-shadow: 0 0 8px #fff; }
+    .bl.ok  { color: var(--g); }
+
+    /* ── Main content ── */
+    #app { position: relative; z-index: 10; opacity: 0; transition: opacity 1s; }
+    #app.on { opacity: 1; }
+
+    /* ── Alert banner ── */
+    #banner {
+      position: sticky; top: 0; z-index: 200; width: 100%;
+      padding: 6px 20px; text-align: center; font-size: 11px;
+      letter-spacing: 4px; text-transform: uppercase;
+      border-bottom: 1px solid var(--gdim); overflow: hidden;
+      transition: all .4s;
+    }
+    #banner::before {
+      content: ''; position: absolute; left: -80%; top: 0; height: 100%; width: 60px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent);
+      animation: sweep 4s linear infinite;
+    }
+    @keyframes sweep { to { left: 120%; } }
+    #banner.ok   { background: #030d03; color: var(--g);  border-color: var(--gdim); }
+    #banner.warn { background: #130f00; color: var(--y);  border-color: var(--y); animation: sweep 4s linear infinite, bwarn 1.4s infinite; }
+    #banner.crit { background: #130200; color: var(--r);  border-color: var(--r); animation: sweep 4s linear infinite, bcrit .35s infinite; }
+    @keyframes bwarn { 50% { opacity: .65; } }
+    @keyframes bcrit { 0%{transform:skewX(0)} 25%{transform:skewX(-2deg)} 75%{transform:skewX(2deg)} 100%{transform:skewX(0)} }
+
+    /* ── Header ── */
+    header {
+      border-bottom: 1px solid var(--bdr); padding: 12px 22px 10px;
+      display: flex; align-items: center; justify-content: space-between;
+      background: linear-gradient(180deg, rgba(8,24,8,.9) 0%, transparent 100%);
+      position: relative;
+    }
+    header::after {
+      content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gdim), var(--g), var(--gdim), transparent);
+      animation: hglow 3s ease-in-out infinite;
+    }
+    @keyframes hglow { 0%,100%{opacity:.4} 50%{opacity:1} }
+
+    .logo { font-family: 'VT323', monospace; font-size: 26px; letter-spacing: 5px;
+      text-shadow: 0 0 18px var(--g), 0 0 36px rgba(57,255,20,.25);
+      animation: logoflick 8s ease-in-out infinite; }
+    @keyframes logoflick { 0%,93%,100%{opacity:1} 94%{opacity:.75} 96%{opacity:.5} 98%{opacity:.9} }
+    .logo span { display: block; font-family: 'Share Tech Mono', monospace; font-size: 12px; color: var(--gdim); letter-spacing: 3px; margin-top: 2px; }
+
+    .atom { font-size: 28px; animation: spin 18s linear infinite; display: inline-block; text-shadow: 0 0 14px var(--g); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hright { text-align: right; color: var(--gdim); font-size: 10px; line-height: 2; }
+    #clk { font-family: 'VT323', monospace; font-size: 22px; color: var(--g); letter-spacing: 2px; text-shadow: 0 0 8px var(--g); }
+    .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--g);
+      box-shadow: 0 0 6px var(--g); animation: pdot 1.6s ease-in-out infinite; vertical-align: middle; margin-right: 3px; }
+    @keyframes pdot { 0%,100%{box-shadow:0 0 5px var(--g);transform:scale(1)} 50%{box-shadow:0 0 14px var(--g),0 0 22px rgba(57,255,20,.4);transform:scale(1.25)} }
+
+    /* ── Nav ── */
+    nav { padding: 0 22px; border-bottom: 1px solid var(--bdr); background: rgba(1,6,1,.85); }
+    nav a {
+      display: inline-block; padding: 8px 16px; color: var(--gdim);
+      text-decoration: none; letter-spacing: 3px; font-size: 10px;
+      border-right: 1px solid var(--bdr); transition: all .2s; position: relative;
+    }
+    nav a::after { content: ''; position: absolute; bottom: 0; left: 50%; right: 50%; height: 2px; background: var(--g); transition: all .3s; }
+    nav a:hover::after, nav a.active::after { left: 0; right: 0; }
+    nav a:hover, nav a.active { color: var(--g); background: rgba(57,255,20,.04); }
+
+    /* ── Layout ── */
+    main { padding: 16px 22px; display: grid; gap: 14px; }
+    .row { display: grid; gap: 14px; }
+    .r3 { grid-template-columns: repeat(3, 1fr); }
+    .r3m { grid-template-columns: 1.1fr 1fr 1.3fr; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--cbg); border: 1px solid var(--bdr);
+      padding: 13px 15px; position: relative; overflow: hidden;
+      transition: border-color .3s, box-shadow .3s;
+    }
+    .card:hover { border-color: var(--gdim); box-shadow: 0 0 16px rgba(57,255,20,.04); }
+    .card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--gdim), var(--g), var(--gdim), transparent);
+      animation: ctop 4s ease-in-out infinite;
+    }
+    @keyframes ctop { 0%,100%{opacity:.3} 50%{opacity:.9} }
+    .ct {
+      font-size: 9px; letter-spacing: 4px; color: var(--gdim);
+      text-transform: uppercase; margin-bottom: 10px;
+      border-bottom: 1px solid var(--bdr); padding-bottom: 5px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .ctd { width: 5px; height: 5px; border-radius: 50%; background: var(--gdim); animation: pdot 2s ease-in-out infinite; }
+
+    /* ── Gauge ── */
+    /* r=40, cx=60,cy=60 => C=251.3, 270°=188.5, 90°=62.8 */
+    .gw { display: flex; flex-direction: column; align-items: center; padding: 6px 0 0; }
+    .gsvg { width: 120px; height: 120px; filter: drop-shadow(0 0 6px rgba(57,255,20,.4)); }
+    .gtrack { fill: none; stroke: rgba(57,255,20,.1); stroke-width: 7; }
+    .gfill  { fill: none; stroke: var(--g); stroke-width: 7; stroke-linecap: round;
+      stroke-dasharray: 0 252; transition: stroke-dasharray 1s cubic-bezier(.4,0,.2,1), stroke .4s; }
+    .gfill.w { stroke: var(--y); }
+    .gfill.c { stroke: var(--r); animation: gcrit .6s ease-in-out infinite alternate; }
+    @keyframes gcrit { from{filter:drop-shadow(0 0 3px var(--r))} to{filter:drop-shadow(0 0 10px var(--r))} }
+    .gval { font-family: 'VT323', monospace; font-size: 30px; fill: var(--g); text-anchor: middle; dominant-baseline: middle; }
+    .gunit { font-family: 'Share Tech Mono', monospace; font-size: 9px; fill: var(--gdim); text-anchor: middle; dominant-baseline: middle; }
+    .glbl { font-size: 9px; letter-spacing: 3px; color: var(--gdim); margin-top: 5px; text-align: center; }
+
+    /* sparkline */
+    .spwrap { margin-top: 7px; height: 28px; width: 100%; }
+    .spsvg { width: 100%; height: 100%; overflow: visible; }
+    .sppath { fill: none; stroke: var(--gdim); stroke-width: 1.5; opacity: .55; }
+
+    /* ── Resource bars ── */
+    .ri { margin-bottom: 14px; }
+    .ri:last-child { margin-bottom: 0; }
+    .rl { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: 2px; color: var(--gdim); margin-bottom: 5px; }
+    .rl .v { color: var(--g); font-size: 12px; }
+    .bt { height: 15px; background: #040c04; border: 1px solid var(--bdr); position: relative; overflow: hidden; }
+    .bt::after { /* segment lines */
+      content: ''; position: absolute; inset: 0; z-index: 2;
+      background: repeating-linear-gradient(90deg, transparent, transparent 9px, rgba(0,0,0,.45) 9px, rgba(0,0,0,.45) 10px);
+      pointer-events: none;
+    }
+    .bf {
+      height: 100%; background: linear-gradient(90deg, var(--gdark), var(--g));
+      box-shadow: 0 0 8px var(--g); position: relative;
+      transition: width .8s cubic-bezier(.4,0,.2,1), background .4s, box-shadow .4s;
+    }
+    .bf::before { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,.5); }
+    .bf.w { background: linear-gradient(90deg, #3a2a00, var(--y)); box-shadow: 0 0 8px var(--y); }
+    .bf.c { background: linear-gradient(90deg, #380000, var(--r)); box-shadow: 0 0 8px var(--r); animation: bcpulse .5s ease-in-out infinite alternate; }
+    @keyframes bcpulse { from{box-shadow:0 0 5px var(--r)} to{box-shadow:0 0 18px var(--r),0 0 28px rgba(255,51,0,.35)} }
+
+    /* ── Subsystems ── */
+    .ssgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .ssi {
+      display: flex; align-items: center; gap: 9px;
+      padding: 7px 9px; border: 1px solid var(--bdr);
+      background: rgba(3,10,3,.6); position: relative; overflow: hidden;
+    }
+    .ssi::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--gdim); transition: all .3s; }
+    .ssi.on::before  { background: var(--g); box-shadow: 0 0 5px var(--g); }
+    .ssi.off::before { background: var(--r); box-shadow: 0 0 5px var(--r); }
+    .ssi.sb::before  { background: var(--y); box-shadow: 0 0 5px var(--y); }
+    .ssind { width: 8px; height: 8px; border-radius: 50%; background: var(--gdim); flex-shrink: 0; }
+    .ssi.on  .ssind { background: var(--g); box-shadow: 0 0 7px var(--g); animation: pdot 1.5s ease-in-out infinite; }
+    .ssi.off .ssind { background: var(--r); box-shadow: 0 0 5px var(--r); }
+    .ssi.sb  .ssind { background: var(--y); animation: pdoty 2s ease-in-out infinite; }
+    @keyframes pdoty { 0%,100%{box-shadow:0 0 3px var(--y)} 50%{box-shadow:0 0 10px var(--y)} }
+    .ssname { font-size: 9px; letter-spacing: 2px; color: var(--g); }
+    .sstxt  { font-size: 8px; letter-spacing: 1px; color: var(--gdim); }
+
+    /* ── Face Detection ── */
+    .fcard { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; min-height: 320px; }
+
+    /* radar */
+    .rw { position: relative; width: 140px; height: 140px; margin: 4px 0 10px; }
+    .rsvg { width: 100%; height: 100%; }
+    .rring { fill: none; stroke: var(--gdim); stroke-width: .6; opacity: .35; }
+    .rcross { stroke: var(--gdim); stroke-width: .5; opacity: .25; }
+    .rsweep { transform-origin: 70px 70px; animation: rspin 2.8s linear infinite; }
+    @keyframes rspin { to { transform: rotate(360deg); } }
+    .rline { stroke: var(--g); stroke-width: 1.5; opacity: .9; }
+    .rfill { fill: url(#rg); opacity: .35; }
+    .rdot  { fill: var(--g); opacity: 0; transition: opacity .3s; }
+    .rdot.on { opacity: 1; animation: rdotp 1s ease-in-out infinite; }
+    @keyframes rdotp { 0%,100%{r:3;opacity:1} 50%{r:6;opacity:.6} }
+
+    /* name */
+    .fname {
+      font-family: 'VT323', monospace; font-size: 38px; letter-spacing: 4px;
+      text-align: center; text-transform: uppercase; min-height: 46px;
+      color: var(--g); text-shadow: 0 0 18px var(--g), 0 0 36px rgba(57,255,20,.35);
+      transition: color .3s, text-shadow .3s;
+    }
+    .fname.scan { color: var(--gdim); font-size: 17px; letter-spacing: 6px;
+      animation: fscan 1.4s ease-in-out infinite; text-shadow: none; }
+    @keyframes fscan { 0%,100%{opacity:1} 50%{opacity:.35} }
+    .fname.unk  { color: var(--y); text-shadow: 0 0 18px var(--y); }
+
+    /* confidence arc  — semicircle M10,90 A80,80 0 0,1 190,90  len≈251 */
+    .carc { margin-top: 8px; display: flex; flex-direction: column; align-items: center; }
+    .casvg { width: 200px; height: 70px; overflow: visible; }
+    .catrack { fill: none; stroke: rgba(57,255,20,.1); stroke-width: 6; stroke-linecap: round; }
+    .cafill  { fill: none; stroke: var(--g); stroke-width: 6; stroke-linecap: round;
+      stroke-dasharray: 0 260; transition: stroke-dasharray .9s ease, stroke .4s;
+      filter: drop-shadow(0 0 3px var(--g)); }
+    .cafill.m { stroke: var(--y); filter: drop-shadow(0 0 3px var(--y)); }
+    .cafill.l { stroke: var(--r); filter: drop-shadow(0 0 3px var(--r)); }
+    .calab { font-size: 10px; letter-spacing: 3px; color: var(--gdim); margin-top: 3px; }
+    .capct { font-family: 'VT323', monospace; font-size: 26px; color: var(--g); letter-spacing: 2px; display: inline; }
+
+    .fmeta { margin-top: 8px; font-size: 9px; letter-spacing: 3px; color: var(--gdim); text-align: center; }
+    .fmeta span { color: var(--g); }
+
+    /* ── Log ── */
+    #logbox {
+      height: 190px; overflow-y: auto; background: #010501;
+      padding: 7px 10px; font-size: 10px; line-height: 1.85;
+    }
+    #logbox::-webkit-scrollbar { width: 3px; }
+    #logbox::-webkit-scrollbar-thumb { background: var(--gdark); border-radius: 2px; }
+    .le { display: flex; gap: 8px; }
+    .lts { color: var(--gdim); flex-shrink: 0; }
+    .lm  { color: rgba(57,255,20,.8); }
+    .lm.s { color: var(--y); }
+    .lm.e { color: var(--r); }
+    .lm.f { color: #00e8ff; }
+
+    @keyframes blink { 50% { opacity: 0; } }
+
+    @media (max-width: 1050px) {
+      .r3, .r3m { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 680px) {
+      .r3, .r3m { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="mx"></canvas>
+<div id="crt"></div>
+<div id="flick"></div>
+
+<!-- Boot screen -->
+<div id="boot"><div id="btxt"></div></div>
+
+<div id="app">
+  <div id="banner" class="ok">■ VAULT SYSTEMS NOMINAL — ALL PARAMETERS WITHIN ACCEPTABLE RANGE ■</div>
+
+  <header>
+    <div class="logo">◈ VAULT-TEC INDUSTRIES<span>VAULT-OS v2.3.1 :: {{ vault_name.upper() }}</span></div>
+    <div class="atom">⚛</div>
+    <div class="hright">
+      OVERSEER TERMINAL<br>
+      <span class="dot"></span>STATUS: <span style="color:var(--g)">ONLINE</span><br>
+      <span id="clk">00:00:00.000</span>
+    </div>
+  </header>
+
+  <nav>
+    <a href="/" class="active">◆ DASHBOARD</a>
+    <a href="/manage">◆ PERSONNEL</a>
+  </nav>
+
+  <main>
+    <!-- Row 1: 3 gauges -->
+    <div class="row r3">
+      <!-- Temp -->
+      <div class="card">
+        <div class="ct">AMBIENT TEMPERATURE<div class="ctd"></div></div>
+        <div class="gw">
+          <svg class="gsvg" viewBox="0 0 120 120">
+            <defs>
+              <filter id="gglow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            <!-- track: r=40, C=251.3, 270°=188.5 start at rotate(135) -->
+            <circle class="gtrack" cx="60" cy="60" r="40" stroke-dasharray="188.5 62.8" transform="rotate(135 60 60)"/>
+            <circle class="gfill" id="gf-t" cx="60" cy="60" r="40" transform="rotate(135 60 60)"/>
+            <text class="gval"  id="gv-t" x="60" y="56">--</text>
+            <text class="gunit" x="60" y="70">°C</text>
+          </svg>
+          <div class="glbl">DHT22 · GPIO4</div>
+          <div class="spwrap"><svg class="spsvg" viewBox="0 0 200 28" preserveAspectRatio="none"><path class="sppath" id="sp-t" d="M0,14 L200,14"/></svg></div>
+        </div>
+      </div>
+
+      <!-- Humidity -->
+      <div class="card">
+        <div class="ct">RELATIVE HUMIDITY<div class="ctd"></div></div>
+        <div class="gw">
+          <svg class="gsvg" viewBox="0 0 120 120">
+            <circle class="gtrack" cx="60" cy="60" r="40" stroke-dasharray="188.5 62.8" transform="rotate(135 60 60)"/>
+            <circle class="gfill" id="gf-h" cx="60" cy="60" r="40" transform="rotate(135 60 60)"/>
+            <text class="gval"  id="gv-h" x="60" y="56">--</text>
+            <text class="gunit" x="60" y="70">%</text>
+          </svg>
+          <div class="glbl">DHT22 · GPIO4</div>
+          <div class="spwrap"><svg class="spsvg" viewBox="0 0 200 28" preserveAspectRatio="none"><path class="sppath" id="sp-h" d="M0,14 L200,14"/></svg></div>
+        </div>
+      </div>
+
+      <!-- CPU Temp -->
+      <div class="card">
+        <div class="ct">CPU TEMPERATURE<div class="ctd"></div></div>
+        <div class="gw">
+          <svg class="gsvg" viewBox="0 0 120 120">
+            <circle class="gtrack" cx="60" cy="60" r="40" stroke-dasharray="188.5 62.8" transform="rotate(135 60 60)"/>
+            <circle class="gfill" id="gf-c" cx="60" cy="60" r="40" transform="rotate(135 60 60)"/>
+            <text class="gval"  id="gv-c" x="60" y="56">--</text>
+            <text class="gunit" x="60" y="70">°C</text>
+          </svg>
+          <div class="glbl">RPI5 CORE</div>
+          <div class="spwrap"><svg class="spsvg" viewBox="0 0 200 28" preserveAspectRatio="none"><path class="sppath" id="sp-c" d="M0,14 L200,14"/></svg></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: resources | subsystems | face -->
+    <div class="row r3m">
+      <!-- Resources -->
+      <div class="card">
+        <div class="ct">SYSTEM RESOURCES<div class="ctd"></div></div>
+        <div class="ri">
+          <div class="rl">CPU LOAD<span class="v" id="lb-cpu">--%</span></div>
+          <div class="bt"><div class="bf" id="b-cpu" style="width:0%"></div></div>
+        </div>
+        <div class="ri">
+          <div class="rl">RAM USAGE<span class="v" id="lb-ram">--%</span></div>
+          <div class="bt"><div class="bf" id="b-ram" style="width:0%"></div></div>
+        </div>
+        <div class="ri">
+          <div class="rl">DISK USAGE<span class="v" id="lb-dsk">--%</span></div>
+          <div class="bt"><div class="bf" id="b-dsk" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <!-- Subsystems -->
+      <div class="card">
+        <div class="ct">SUBSYSTEM STATUS<div class="ctd"></div></div>
+        <div class="ssgrid">
+          <div class="ssi" id="ss-mqtt"><div class="ssind"></div><div><div class="ssname">MQTT</div><div class="sstxt" id="ss-mqtt-t">OFFLINE</div></div></div>
+          <div class="ssi on"          id="ss-life"><div class="ssind"></div><div><div class="ssname">LIFE SUPP</div><div class="sstxt">ONLINE</div></div></div>
+          <div class="ssi sb"          id="ss-face"><div class="ssind"></div><div><div class="ssname">FACE RECOG</div><div class="sstxt" id="ss-face-t">STANDBY</div></div></div>
+          <div class="ssi"             id="ss-sens"><div class="ssind"></div><div><div class="ssname">SENSORS</div><div class="sstxt" id="ss-sens-t">OFFLINE</div></div></div>
+          <div class="ssi on"          id="ss-net" ><div class="ssind"></div><div><div class="ssname">NETWORK</div><div class="sstxt">ONLINE</div></div></div>
+          <div class="ssi on"          id="ss-door"><div class="ssind"></div><div><div class="ssname">VAULT DOOR</div><div class="sstxt">SECURED</div></div></div>
+        </div>
+      </div>
+
+      <!-- Face Detection -->
+      <div class="card fcard">
+        <div class="ct" style="width:100%">FACIAL RECOGNITION<div class="ctd"></div></div>
+
+        <!-- Radar -->
+        <div class="rw">
+          <svg class="rsvg" viewBox="0 0 140 140">
+            <defs>
+              <radialGradient id="rg" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#39ff14" stop-opacity=".7"/>
+                <stop offset="100%" stop-color="#39ff14" stop-opacity="0"/>
+              </radialGradient>
+              <filter id="df"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            <circle class="rring" cx="70" cy="70" r="65"/>
+            <circle class="rring" cx="70" cy="70" r="45"/>
+            <circle class="rring" cx="70" cy="70" r="25"/>
+            <circle class="rring" cx="70" cy="70" r="8"/>
+            <line class="rcross" x1="70" y1="5"  x2="70" y2="135"/>
+            <line class="rcross" x1="5"  y1="70" x2="135" y2="70"/>
+            <g class="rsweep">
+              <path class="rfill" d="M70,70 L135,70 A65,65 0 0,1 132,84 Z"/>
+              <line class="rline" x1="70" y1="70" x2="135" y2="70"/>
+            </g>
+            <circle class="rdot" id="rd1" cx="100" cy="48" r="4" filter="url(#df)"/>
+            <circle class="rdot" id="rd2" cx="52"  cy="95" r="3" filter="url(#df)"/>
+          </svg>
+        </div>
+
+        <!-- Detected name -->
+        <div class="fname scan" id="face-name">SCANNING...</div>
+
+        <!-- Confidence semicircle arc  M10,65 A60,60 0 0,1 190,65  len≈188 -->
+        <div class="carc">
+          <svg class="casvg" viewBox="0 0 200 72">
+            <path class="catrack" d="M10,65 A60,60 0 0,1 190,65"/>
+            <path class="cafill"  id="ca" d="M10,65 A60,60 0 0,1 190,65"/>
+            <text x="100" y="58" text-anchor="middle" font-family="VT323,monospace" font-size="22" fill="#39ff14" id="capct">--%</text>
+          </svg>
+          <div class="calab">CONFIDENCE LEVEL</div>
+        </div>
+
+        <div class="fmeta">
+          FACES IN FRAME: <span id="fc">0</span>
+          &nbsp;·&nbsp;
+          <a href="/manage" style="color:var(--gdim);text-decoration:none;letter-spacing:2px;">MANAGE →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 3: Log -->
+    <div class="card">
+      <div class="ct">
+        VAULT-OS SYSTEM LOG
+        <span style="display:flex;gap:10px;align-items:center;">
+          <span id="lcount" style="font-size:8px;">0 ENTRIES</span>
+          <div class="ctd"></div>
+        </span>
+      </div>
+      <div id="logbox"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+// ── Matrix rain ──────────────────────────────────────────────────────────────
+(function(){
+  const cv = document.getElementById('mx'), cx = cv.getContext('2d');
+  const chars = 'VAULT0123456789ABCDEF◈◆■▲✖⚛OVERSEER';
+  let cols, drops;
+  function resize(){ cv.width=innerWidth; cv.height=innerHeight; cols=Math.floor(cv.width/16); drops=Array.from({length:cols},()=>Math.random()*cv.height/16); }
+  resize(); window.addEventListener('resize', resize);
+  setInterval(()=>{
+    cx.fillStyle='rgba(1,8,1,.05)'; cx.fillRect(0,0,cv.width,cv.height);
+    cx.fillStyle='#39ff14'; cx.font='13px Share Tech Mono';
+    drops.forEach((y,i)=>{ cx.fillText(chars[Math.random()*chars.length|0],i*16,y*16); if(y*16>cv.height&&Math.random()>.975)drops[i]=0; drops[i]+=0.45; });
+  }, 55);
+})();
+
+// ── Boot sequence ────────────────────────────────────────────────────────────
+const BOOT = [
+  [0,   'br', 'VAULT-TEC INDUSTRIES — AUTOMATED SYSTEMS DIVISION'],
+  [100, 'dim','━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'],
+  [250, '',   'VAULT-OS v2.3.1 KERNEL LOADING...'],
+  [450, 'dim','BIOS: VT-BIOS 4.20 :: MEMORY CHECK: 4096MB  OK'],
+  [650, 'ok', 'INITIALIZING MQTT SUBSYSTEM............[ OK ]'],
+  [820, 'ok', 'LOADING SENSOR ARRAY DRIVERS...........[ OK ]'],
+  [990, 'ok', 'STARTING FACE RECOGNITION ENGINE.......[ OK ]'],
+  [1160,'ok', 'CONNECTING TO BROKER...................[ OK ]'],
+  [1320,'ok', 'VAULT DOOR INTEGRITY CHECK.............[ OK ]'],
+  [1500,'w',  '⚠  EXTERNAL RADIATION LEVEL: NOMINAL'],
+  [1680,'dim','━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'],
+  [1850,'br', 'ALL SYSTEMS OPERATIONAL. WELCOME, OVERSEER.'],
+];
+const btxt = document.getElementById('btxt');
+BOOT.forEach(([d,c,t])=>setTimeout(()=>{
+  const s=document.createElement('span'); s.className='bl '+(c||''); s.textContent=t; btxt.appendChild(s);
+},d));
+const boot=document.getElementById('boot'), app=document.getElementById('app');
+setTimeout(()=>{ boot.classList.add('out'); app.classList.add('on'); setTimeout(()=>boot.classList.add('gone'),750); }, 2500);
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function tick(){
+  const n=new Date(), h=n=>String(n).padStart(2,'0');
+  document.getElementById('clk').textContent=`${h(n.getHours())}:${h(n.getMinutes())}:${h(n.getSeconds())}.${String(n.getMilliseconds()).padStart(3,'0')}`;
+}
+setInterval(tick,50); tick();
+
+// ── History / sparklines ─────────────────────────────────────────────────────
+const HIS={t:[],h:[],c:[]}, HL=40;
+function pushH(k,v){ if(v==null)return; HIS[k].push(parseFloat(v)); if(HIS[k].length>HL)HIS[k].shift(); }
+function drawSpark(id,data){
+  if(data.length<2)return;
+  const mn=Math.min(...data),mx=Math.max(...data),rng=mx-mn||1;
+  const pts=data.map((v,i)=>`${(i/(HL-1))*200},${28-3-((v-mn)/rng)*(28-6)}`);
+  document.getElementById(id).setAttribute('d','M'+pts.join('L'));
+}
+
+// ── Gauge (r=40, 270° arc = 188.5) ──────────────────────────────────────────
+function setGauge(fillId, valId, val, min, max, wt, ct){
+  const f=document.getElementById(fillId), v=document.getElementById(valId);
+  const pct=val!=null ? Math.min(Math.max((val-min)/(max-min),0),1) : 0;
+  const ARC=188.5;
+  f.setAttribute('stroke-dasharray',`${pct*ARC} 252`);
+  v.textContent=val!=null?parseFloat(val).toFixed(1):'--';
+  f.className='gfill'+(val>=ct?' c':val>=wt?' w':'');
+}
+
+// ── Bar ───────────────────────────────────────────────────────────────────────
+function setBar(bid,lid,val){
+  const b=document.getElementById(bid),l=document.getElementById(lid);
+  const p=Math.min(Math.max(val??0,0),100);
+  b.style.width=p+'%';
+  l.textContent=val!=null?p.toFixed(1)+'%':'--%';
+  b.className='bf'+(p>=85?' c':p>=70?' w':'');
+}
+
+// ── Subsystem ─────────────────────────────────────────────────────────────────
+function setSS(id,txtId,cls){
+  document.getElementById(id).className='ssi '+cls;
+  if(txtId)document.getElementById(txtId).textContent=cls==='on'?'ONLINE':cls==='off'?'OFFLINE':'STANDBY';
+}
+
+// ── Confidence arc  — path length M10,65 A60,60 0 0,1 190,65 ≈ 188 ─────────
+const CLEN=188;
+function setCA(pct){
+  const len=(pct/100)*CLEN;
+  const a=document.getElementById('ca');
+  a.setAttribute('stroke-dasharray',`${len} ${CLEN}`);
+  a.className='cafill'+(pct>=75?'':pct>=50?' m':' l');
+  document.getElementById('capct').textContent=pct>0?pct.toFixed(1)+'%':'--%';
+}
+
+// ── Face ─────────────────────────────────────────────────────────────────────
+function updateFace(fd){
+  const ne=document.getElementById('face-name'), fce=document.getElementById('fc');
+  const faces=fd?.faces??0; fce.textContent=faces;
+  const rd1=document.getElementById('rd1'), rd2=document.getElementById('rd2');
+  if(!fd||faces===0){
+    ne.textContent='SCANNING...'; ne.className='fname scan';
+    setCA(0); rd1.classList.remove('on'); rd2.classList.remove('on');
+    setSS('ss-face','ss-face-t','sb'); return;
+  }
+  const name=fd.name||'UNKNOWN', conf=parseFloat(fd.confidence)||0;
+  ne.textContent=name; ne.className='fname'+(name==='UNKNOWN'?' unk':'');
+  setCA(conf);
+  rd1.classList.add('on'); if(faces>1)rd2.classList.add('on'); else rd2.classList.remove('on');
+  setSS('ss-face','ss-face-t','on');
+}
+
+// ── Thresholds / alert banner ─────────────────────────────────────────────────
+const TH={temperature:{w:28,c:35},humidity:{w:70,c:80},cpu_temp:{w:65,c:80},cpu_load:{w:70,c:85},ram:{w:80,c:90},disk:{w:85,c:95}};
+function lvl(k,v){ if(v==null)return'ok'; const t=TH[k]; if(!t)return'ok'; return v>=t.c?'crit':v>=t.w?'warn':'ok'; }
+function updateBanner(d){
+  let w='ok';
+  for(const k of Object.keys(TH)){ const l=lvl(k,d[k]); if(l==='crit'){w='crit';break;} if(l==='warn'&&w!=='crit')w='warn'; }
+  const b=document.getElementById('banner'); b.className=w;
+  b.textContent={ok:'■ VAULT SYSTEMS NOMINAL — ALL PARAMETERS WITHIN ACCEPTABLE RANGE ■',warn:'▲ WARNING — ELEVATED READINGS DETECTED — MONITOR ALL SUBSYSTEMS ▲',crit:'✖ CRITICAL ALERT — IMMEDIATE ATTENTION REQUIRED — OVERSEER NOTIFIED ✖'}[w];
+}
+
+// ── Dashboard update ──────────────────────────────────────────────────────────
+function updateDashboard(d){
+  setGauge('gf-t','gv-t',d.temperature,  0,50,28,35);
+  setGauge('gf-h','gv-h',d.humidity,     0,100,70,80);
+  setGauge('gf-c','gv-c',d.cpu_temp,     0,100,65,80);
+  pushH('t',d.temperature); pushH('h',d.humidity); pushH('c',d.cpu_temp);
+  drawSpark('sp-t',HIS.t); drawSpark('sp-h',HIS.h); drawSpark('sp-c',HIS.c);
+  setBar('b-cpu','lb-cpu',d.cpu_load);
+  setBar('b-ram','lb-ram',d.ram);
+  setBar('b-dsk','lb-dsk',d.disk);
+  setSS('ss-mqtt','ss-mqtt-t','on');
+  setSS('ss-sens','ss-sens-t',d.temperature!=null?'on':'off');
+  updateFace(d.face_detection);
+  updateBanner(d);
+}
+
+// ── Log ───────────────────────────────────────────────────────────────────────
+const logbox=document.getElementById('logbox');
+let logn=0;
+function addLog(msg){
+  logn++;
+  const n=new Date(), p=v=>String(v).padStart(2,'0');
+  const ts=`${p(n.getHours())}:${p(n.getMinutes())}:${p(n.getSeconds())}`;
+  const clean=msg.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/,'');
+  const up=clean.toUpperCase();
+  const cls=up.includes('[ERR')||up.includes('ERROR')?'e':up.includes('[SYS')||up.includes('SYSTEM')?'s':up.includes('FACE')||up.includes('[FACE')?'f':'';
+  const div=document.createElement('div'); div.className='le';
+  div.innerHTML=`<span class="lts">[${ts}]</span><span class="lm ${cls}">&nbsp;${clean}</span>`;
+  logbox.appendChild(div); logbox.scrollTop=logbox.scrollHeight;
+  document.getElementById('lcount').textContent=logn+' ENTRIES';
+  while(logbox.children.length>200)logbox.removeChild(logbox.firstChild);
+}
+
+// ── Socket.IO ─────────────────────────────────────────────────────────────────
+const socket=io();
+socket.on('connect',()=>{ setSS('ss-mqtt','ss-mqtt-t','on'); addLog('[SYSTEM] WebSocket connected to Vault-OS backend'); });
+socket.on('disconnect',()=>{ setSS('ss-mqtt','ss-mqtt-t','off'); addLog('[ERROR] WebSocket disconnected — retrying...'); });
+socket.on('state_update',updateDashboard);
+socket.on('log',d=>addLog(d.message));
+
+fetch('/api/state').then(r=>r.json()).then(updateDashboard).catch(()=>{});
+fetch('/api/logs').then(r=>r.json()).then(l=>l.forEach(addLog)).catch(()=>{});
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+[Unit]
+Description=Vault-OS Flask Dashboard + API
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+User=admin
+Group=gpio
+Type=simple
+WorkingDirectory=/home/pi/vault_os
+ExecStart=/home/pi/vault_os/venv/bin/python3 /home/pi/vault_os/app.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
