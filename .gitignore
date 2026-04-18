@@ -2,8 +2,4 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
-faces/
-models/
 flask_out.txt
-*.bat
-patch_dashboard*.py
