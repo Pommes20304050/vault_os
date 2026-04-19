@@ -321,6 +321,5 @@ sudo systemctl stop vault-app vault-publisher vault-gpio
 ╚══════════════════════════════════════════╝
 ```
 
-*In 2 Tagen gebaut. Auf einem Pi 5. Mit echter Hardware.*
 
 </div>
