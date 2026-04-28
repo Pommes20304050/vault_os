@@ -161,7 +161,8 @@ vault_os/
 │
 ├── faces/                    ← Gesichtsfotos pro Person
 │   ├── Louis/
-│   └── Viktor/
+│   ├── Viktor/
+|   └── Paul/
 │
 ├── models/                   ← KI-Modelle (ONNX)
 │   ├── face_detection_yunet_2023mar.onnx
